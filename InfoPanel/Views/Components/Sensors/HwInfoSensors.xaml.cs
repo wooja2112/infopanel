@@ -159,6 +159,27 @@ namespace InfoPanel.Views.Components
                     group.Children.Add(child);
                 }
             }
+
+            // Newly added sensors start visible; hide them if a filter is active.
+            ApplyFilter(expandMatches: false);
+        }
+
+        private void FilterTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            ApplyFilter(expandMatches: true);
+        }
+
+        private void ApplyFilter(bool expandMatches)
+        {
+            // Can run from ConnectionComboBox_SelectionChanged during InitializeComponent.
+            if (FilterTextBox == null || NoMatchesText == null)
+                return;
+
+            var filterText = FilterTextBox.Text;
+            var anyVisible = SensorTreeFilter.Apply(ViewModel.Sensors, filterText, expandMatches);
+            NoMatchesText.Visibility = !anyVisible && !string.IsNullOrWhiteSpace(filterText)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
         }
 
         private void ConnectionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)

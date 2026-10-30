@@ -14,6 +14,16 @@ namespace InfoPanel.ViewModels.Components
         public string? Icon { get; set; } = "pack://application:,,,/Resources/Images/Libre/empty.png";
         public ObservableCollection<TreeItem> Children { get; set; } = [];
 
+        /// <summary>False when hidden by the sensor tree filter (see <see cref="SensorTreeFilter"/>).</summary>
+        [ObservableProperty]
+        private bool _isVisible = true;
+
+        [ObservableProperty]
+        private bool _isExpanded;
+
+        /// <summary>Expansion state captured when a filter starts, restored when it is cleared.</summary>
+        internal bool? ExpandedBeforeFilter { get; set; }
+
         public TreeItem? FindChild(object id)
         {
             foreach (var child in Children)

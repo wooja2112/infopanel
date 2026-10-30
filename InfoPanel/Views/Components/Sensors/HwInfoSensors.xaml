@@ -25,19 +25,32 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Margin="0,0,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="auto" />
-            </Grid.ColumnDefinitions>
-            <ComboBox
-                Grid.Column="0"
+        <StackPanel Grid.Row="0">
+            <Grid Margin="0,0,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox
+                    Grid.Column="0"
+                    Margin="10,10,10,0"
+                    DisplayMemberPath="DisplayName"
+                    ItemsSource="{Binding Connections}"
+                    SelectedItem="{Binding SelectedConnection}"
+                    SelectionChanged="ConnectionComboBox_SelectionChanged" />
+            </Grid>
+
+            <ui:TextBox
+                x:Name="FilterTextBox"
                 Margin="10,10,10,0"
-                DisplayMemberPath="DisplayName"
-                ItemsSource="{Binding Connections}"
-                SelectedItem="{Binding SelectedConnection}"
-                SelectionChanged="ConnectionComboBox_SelectionChanged" />
-        </Grid>
+                PlaceholderText="Filter sensors..."
+                TextChanged="FilterTextBox_TextChanged"
+                ToolTip="Show sensors whose name, group or hardware contains every word, e.g. &quot;cpu temp&quot;">
+                <ui:TextBox.Icon>
+                    <ui:SymbolIcon Symbol="Search20" />
+                </ui:TextBox.Icon>
+            </ui:TextBox>
+        </StackPanel>
 
         <TreeView
             x:Name="TreeViewInfo"
@@ -47,6 +60,12 @@
             Focusable="False"
             ItemsSource="{Binding Sensors}"
             SelectedItemChanged="TreeViewInfo_SelectedItemChanged">
+            <TreeView.ItemContainerStyle>
+                <Style BasedOn="{StaticResource {x:Type TreeViewItem}}" TargetType="TreeViewItem">
+                    <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    <Setter Property="Visibility" Value="{Binding IsVisible, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                </Style>
+            </TreeView.ItemContainerStyle>
             <TreeView.ItemTemplate>
                 <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                     <StackPanel Orientation="Horizontal">
@@ -64,6 +83,16 @@
                 </HierarchicalDataTemplate>
             </TreeView.ItemTemplate>
         </TreeView>
+
+        <TextBlock
+            x:Name="NoMatchesText"
+            Grid.Row="1"
+            Margin="10,20,10,0"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Top"
+            IsHitTestVisible="False"
+            Text="No matching sensors."
+            Visibility="Collapsed" />
 
         <StackPanel Grid.Row="2" Margin="10,0,10,0">
             <Separator Grid.Row="2" Margin="0,5,0,5" />
