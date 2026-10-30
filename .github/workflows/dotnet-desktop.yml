@@ -38,9 +38,14 @@ jobs:
     #     restore-keys: |
     #       ${{ runner.os }}-nuget-
 
+    - name: Restore
+      run: dotnet restore --force-evaluate
+
+    - name: Test
+      run: dotnet test InfoPanel.Tests/InfoPanel.Tests.csproj -c Release --no-restore --logger "console;verbosity=normal"
+
     - name: Build InfoPanel
       run: |
-        dotnet restore --force-evaluate
         dotnet publish InfoPanel/InfoPanel.csproj -c Release -r win-x64 --self-contained -p:PublishProfile=FolderProfile -p:Platform=x64
 
     - name: Install and Compile Inno Setup Installer

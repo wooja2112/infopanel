@@ -52,6 +52,7 @@ namespace InfoPanel.Services
         private int _panelHeight = DEFAULT_HEIGHT;
         private ThermalrightPanelModelInfo? _detectedModel;
         private int _maxJpegSize; // 0 = no limit; set by TrofeoBulk protocols to cap JPEG size
+        private int? _adaptiveJpegQuality; // last quality that fit under _maxJpegSize; null = start from configured
         private int _flickerFixCropHeight; // 0 = N/A; >0 = crop height when flicker fix is enabled
         private bool _useGdiPlusJpeg; // true = use GDI+ JPEG encoder to match TRCC's CompressionImage output
 
@@ -184,37 +185,39 @@ namespace InfoPanel.Services
                         encodeBitmap = cropped;
                     }
 
-                    int quality = _device.JpegQuality;
+                    byte[] EncodeJpeg(int q)
+                    {
+                        if (_useGdiPlusJpeg)
+                        {
+                            return EncodeJpegGdiPlus(encodeBitmap, q);
+                        }
 
-                    byte[] result;
-                    if (_useGdiPlusJpeg)
-                    {
-                        result = EncodeJpegGdiPlus(encodeBitmap, quality);
-                    }
-                    else
-                    {
+                        encodeBitmap.SetImmutable(); // avoid a full pixel copy in FromBitmap
                         using var image = SKImage.FromBitmap(encodeBitmap);
-                        using var data = image.Encode(SKEncodedImageFormat.Jpeg, quality);
-                        result = data.ToArray();
+                        using var data = image.Encode(SKEncodedImageFormat.Jpeg, q);
+                        return data.ToArray();
                     }
+
+                    int configuredQuality = _device.JpegQuality;
+                    int quality = _maxJpegSize > 0
+                        ? AdaptiveJpegQuality.GetStartQuality(_adaptiveJpegQuality, configuredQuality)
+                        : configuredQuality;
+
+                    byte[] result = EncodeJpeg(quality);
 
                     // Adaptive quality: if JPEG exceeds device buffer limit, re-encode smaller
                     // (TRCC drops frames >= 450KB and reduces quality by 5; we re-encode in-place)
-                    if (_maxJpegSize > 0 && result.Length > _maxJpegSize)
+                    if (_maxJpegSize > 0)
                     {
-                        for (quality -= 5; quality >= 50 && result.Length > _maxJpegSize; quality -= 5)
+                        while (result.Length > _maxJpegSize && quality - 5 >= 50)
                         {
-                            if (_useGdiPlusJpeg)
-                            {
-                                result = EncodeJpegGdiPlus(encodeBitmap, quality);
-                            }
-                            else
-                            {
-                                using var img2 = SKImage.FromBitmap(encodeBitmap);
-                                using var smaller = img2.Encode(SKEncodedImageFormat.Jpeg, quality);
-                                result = smaller.ToArray();
-                            }
+                            quality -= 5;
+                            result = EncodeJpeg(quality);
                         }
+
+                        // Start the next frame from the quality that fit instead of re-running the
+                        // whole ladder every frame; step back up when there is clear headroom.
+                        _adaptiveJpegQuality = AdaptiveJpegQuality.GetNextQuality(quality, result.Length, _maxJpegSize, configuredQuality);
                     }
                     return result;
                 }
@@ -347,7 +350,7 @@ namespace InfoPanel.Services
         /// (FormCZTV.ImageTo565) drops the low bits with no dithering, so we match that.
         /// Reads the bitmap row-by-row honoring RowBytes to avoid any row padding bleed.
         /// </summary>
-        private static byte[] ConvertRgba8888ToRgb565(SKBitmap bitmap, bool bigEndian)
+        internal static byte[] ConvertRgba8888ToRgb565(SKBitmap bitmap, bool bigEndian)
         {
             int width = bitmap.Width;
             int height = bitmap.Height;

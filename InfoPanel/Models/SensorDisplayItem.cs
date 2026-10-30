@@ -385,13 +385,24 @@ namespace InfoPanel.Models
             return "-";
         }
 
-        private string EvaluateText(SensorReading sensorReading)
+        internal string EvaluateText(SensorReading sensorReading)
         {
             string? value;
             // new string sensor handling
             if (!string.IsNullOrEmpty(sensorReading.ValueText))
             {
                 value = sensorReading.ValueText;
+
+                // Plugin text values are produced culture-invariant.
+                if (ShowThousandsSeparator && double.TryParse(value,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out double parsedValue))
+                {
+                    int decimalIndex = value.IndexOf('.');
+                    int decimalPlaces = decimalIndex >= 0 ? value.Length - decimalIndex - 1 : 0;
+                    value = parsedValue.ToString("N" + decimalPlaces, System.Globalization.CultureInfo.InvariantCulture);
+                }
             }
             else
             {
@@ -436,55 +447,33 @@ namespace InfoPanel.Models
                 }
 
 
+                int decimalPlaces;
+
                 if (OverridePrecision)
                 {
-                    switch (Precision)
+                    decimalPlaces = Precision is >= 1 and <= 3 ? Precision : 0;
+                    if (decimalPlaces == 0)
                     {
-                        case 1:
-                            value = string.Format("{0:0.0}", sensorReadingValue);
-                            break;
-                        case 2:
-                            value = string.Format("{0:0.00}", sensorReadingValue);
-                            break;
-                        case 3:
-                            value = string.Format("{0:0.000}", sensorReadingValue);
-                            break;
-                        default:
-                            value = string.Format("{0:0}", Math.Floor(sensorReadingValue));
-                            break;
+                        sensorReadingValue = Math.Floor(sensorReadingValue);
                     }
                 }
                 else
                 {
-                    switch (sensorReading.Unit.ToLower())
+                    decimalPlaces = sensorReading.Unit.ToLower() switch
                     {
-                        case "gb":
-                            value = string.Format("{0:0.0}", sensorReadingValue);
-                            break;
-                        case "kb/s":
-                        case "mb/s":
-                        case "mbar/min":
-                        case "mbar":
-                            value = string.Format("{0:0.00}", sensorReadingValue);
-                            break;
-                        case "v":
-                            value = string.Format("{0:0.000}", sensorReadingValue);
-                            break;
-                        default:
-                            value = string.Format("{0:0}", sensorReadingValue);
-                            break;
-                    }
+                        "gb" => 1,
+                        "kb/s" or "mb/s" or "mbar/min" or "mbar" => 2,
+                        "v" => 3,
+                        _ => 0,
+                    };
                 }
-            }
 
-            if (ShowThousandsSeparator && double.TryParse(value,
-                System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture,
-                out double parsedValue))
-            {
-                int decimalIndex = value.IndexOf('.');
-                int decimalPlaces = decimalIndex >= 0 ? value.Length - decimalIndex - 1 : 0;
-                value = parsedValue.ToString("N" + decimalPlaces, System.Globalization.CultureInfo.InvariantCulture);
+                // Format the number directly in the current culture. Re-parsing a formatted string
+                // with the invariant culture misread the decimal comma in e.g. de-DE ("1234,5" -> 12,345).
+                var format = ShowThousandsSeparator
+                    ? "N" + decimalPlaces
+                    : decimalPlaces == 0 ? "0" : "0." + new string('0', decimalPlaces);
+                value = sensorReadingValue.ToString(format, System.Globalization.CultureInfo.CurrentCulture);
             }
 
             if (ShowUnit)

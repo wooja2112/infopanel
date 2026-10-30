@@ -47,6 +47,8 @@ namespace InfoPanel.Extensions
                 canvas.Scale(scale);
                 canvas.Translate(-sourceBitmap.Width / 2f, -sourceBitmap.Height / 2f);
 
+                // The rendered source frame is not modified after this; avoid a full pixel copy.
+                sourceBitmap.SetImmutable();
                 using var image = SKImage.FromBitmap(sourceBitmap);
                 using var paint = new SKPaint
                 {

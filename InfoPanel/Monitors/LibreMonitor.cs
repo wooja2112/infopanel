@@ -67,32 +67,48 @@ namespace InfoPanel.Monitors
                 try
                 {
                     UpdateVisitor updateVisitor = new();
+                    string? lastPollError = null;
 
                     while (!token.IsCancellationRequested)
                     {
-                        computer.Accept(updateVisitor);
-
-                        foreach (IHardware hardware in computer.Hardware)
+                        // A single failing hardware.Update() (driver hiccup) must not stop polling
+                        // for the rest of the session; log once per distinct error and retry.
+                        try
                         {
-                            //Trace.WriteLine($"Hardware: {hardware.Name} id: {hardware.Identifier}");
-                            HEADER_DICT[hardware.Identifier.ToString()] = hardware;
+                            computer.Accept(updateVisitor);
 
-                            foreach (IHardware subhardware in hardware.SubHardware)
+                            foreach (IHardware hardware in computer.Hardware)
                             {
-                                //Trace.WriteLine($"\tSubhardware: {subhardware.Name} id: {subhardware.Identifier}");
+                                //Trace.WriteLine($"Hardware: {hardware.Name} id: {hardware.Identifier}");
+                                HEADER_DICT[hardware.Identifier.ToString()] = hardware;
 
-                                foreach (ISensor sensor in subhardware.Sensors)
+                                foreach (IHardware subhardware in hardware.SubHardware)
                                 {
-                                    //Trace.WriteLine($"\t\tSensor: {sensor.Name}, value: {sensor.Value} id: {sensor.Identifier}");
+                                    //Trace.WriteLine($"\tSubhardware: {subhardware.Name} id: {subhardware.Identifier}");
+
+                                    foreach (ISensor sensor in subhardware.Sensors)
+                                    {
+                                        //Trace.WriteLine($"\t\tSensor: {sensor.Name}, value: {sensor.Value} id: {sensor.Identifier}");
+                                        SENSORHASH[sensor.Identifier.ToString()] = sensor;
+                                    }
+                                }
+
+                                foreach (ISensor sensor in hardware.Sensors)
+                                {
+                                    //Trace.WriteLine($"\tSensor: {sensor.Name}, value: {sensor.Value} id: {sensor.Identifier}");
                                     SENSORHASH[sensor.Identifier.ToString()] = sensor;
                                 }
                             }
 
-                            foreach (ISensor sensor in hardware.Sensors)
+                            lastPollError = null;
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            if (ex.Message != lastPollError)
                             {
-                                //Trace.WriteLine($"\tSensor: {sensor.Name}, value: {sensor.Value} id: {sensor.Identifier}");
-                                SENSORHASH[sensor.Identifier.ToString()] = sensor;
+                                Logger.Error(ex, "Exception during LibreMonitor poll, will retry");
                             }
+                            lastPollError = ex.Message;
                         }
 
                         await Task.Delay(2000, token);

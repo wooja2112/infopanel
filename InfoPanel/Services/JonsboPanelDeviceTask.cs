@@ -19,6 +19,7 @@ namespace InfoPanel.Services
         private readonly JonsboPanelDevice _device;
         private int _panelWidth;   // native portrait width  (462 on DS916)
         private int _panelHeight;  // native portrait height (1920 on DS916)
+        private int? _adaptiveJpegQuality; // last quality that fit under MaxJpegBytes; null = start from configured
 
         public JonsboPanelDeviceTask(JonsboPanelDevice device)
         {
@@ -236,19 +237,24 @@ namespace InfoPanel.Services
                         encodeBitmap = dimmed;
                     }
 
-                    int quality = _device.JpegQuality;
+                    int configuredQuality = _device.JpegQuality;
+                    int quality = AdaptiveJpegQuality.GetStartQuality(_adaptiveJpegQuality, configuredQuality);
+                    encodeBitmap.SetImmutable(); // avoid a full pixel copy in FromBitmap
                     using var image = SKImage.FromBitmap(encodeBitmap);
 
                     // Drop quality until the JPEG fits the soft payload cap.
-                    for (int attempt = 0; attempt < 5; attempt++)
+                    while (true)
                     {
                         using var data = image.Encode(SKEncodedImageFormat.Jpeg, quality);
                         if (data.Size <= maxBytes || quality <= 30)
+                        {
+                            // Start the next frame from the quality that fit instead of re-running the
+                            // whole ladder every frame; step back up when there is clear headroom.
+                            _adaptiveJpegQuality = AdaptiveJpegQuality.GetNextQuality(quality, data.Size, maxBytes, configuredQuality);
                             return data.ToArray();
+                        }
                         quality = Math.Max(30, quality - 15);
                     }
-                    using var fallback = image.Encode(SKEncodedImageFormat.Jpeg, 30);
-                    return fallback.ToArray();
                 }
                 finally
                 {

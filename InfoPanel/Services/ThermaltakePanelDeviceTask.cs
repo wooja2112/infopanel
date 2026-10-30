@@ -203,6 +203,7 @@ namespace InfoPanel.Services
                     }
 
                 int quality = _device.JpegQuality;
+                encodeBitmap.SetImmutable(); // avoid a full pixel copy in FromBitmap
                 using var image = SKImage.FromBitmap(encodeBitmap);
                 using var data = image.Encode(SKEncodedImageFormat.Jpeg, quality);
                 return data.ToArray();

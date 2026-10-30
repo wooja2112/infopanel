@@ -43,6 +43,9 @@ namespace InfoPanel.Drawing
 
         public void DrawBitmap(SKBitmap bitmap, int x, int y, int width, int height, int rotation = 0, int rotationCenterX = 0, int rotationCenterY = 0, bool flipX = false, bool flipY = false, float opacity = 1f)
         {
+            // Callers pass per-frame temporaries; marking them immutable lets FromBitmap share the
+            // pixels instead of copying the whole bitmap.
+            bitmap.SetImmutable();
             using var image = SKImage.FromBitmap(bitmap);
             DrawImage(image, x, y, width, height, rotation, rotationCenterX, rotationCenterY, flipX, flipY, opacity);
         }
@@ -399,7 +402,8 @@ namespace InfoPanel.Drawing
             var result = fontName;
             foreach (var descriptor in descriptors)
             {
-                result = Regex.Replace(result, $@"\s*{Regex.Escape(descriptor)}\s*", " ",
+                // Whole words only: "Subtle" or "Lightning" must not lose "bt" / "Light".
+                result = Regex.Replace(result, $@"\s*\b{Regex.Escape(descriptor)}\b\s*", " ",
                     RegexOptions.IgnoreCase);
             }
 

@@ -283,7 +283,9 @@ namespace InfoPanel
 
                 _webApplication.MapGet("/{id}", async context =>
                 {
-                    var filePath = "index.html";
+                    // Resolve next to the executable: the working directory differs under autostart
+                    // (Task Scheduler / shortcuts with a different "Start in").
+                    var filePath = Path.Combine(AppContext.BaseDirectory, "index.html");
                     var content = await File.ReadAllTextAsync(filePath, Encoding.UTF8);
                     content = content.Replace("{{REFRESH_RATE}}", $"{ConfigModel.Instance.Settings.WebServerRefreshRate}");
                     context.Response.ContentType = "text/html";
@@ -292,7 +294,7 @@ namespace InfoPanel
 
                 _webApplication.MapGet("/{id}/image", async context =>
                 {
-                    if (int.TryParse(context.Request.RouteValues["id"]?.ToString(), out int id) && id < ConfigModel.Instance.Profiles.Count)
+                    if (int.TryParse(context.Request.RouteValues["id"]?.ToString(), out int id) && id >= 0 && id < ConfigModel.Instance.Profiles.Count)
                     {
                         Logger.Debug("WebServer: Serving image for profile {ProfileId}", id);
                         var profile = ConfigModel.Instance.Profiles[id];

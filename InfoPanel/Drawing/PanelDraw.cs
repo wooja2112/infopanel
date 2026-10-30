@@ -259,7 +259,7 @@ namespace InfoPanel.Drawing
 
                         if (scaledWidth <= 0 || scaledHeight <= 0)
                         {
-                            return;
+                            break;
                         }
 
                         if (cachedImage != null)
@@ -330,6 +330,7 @@ namespace InfoPanel.Drawing
                                         using var overlayPaint = new SKPaint { IsAntialias = true };
                                         var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.Nearest);
 
+                                        overlayBitmap.SetImmutable();
                                         using var image = SKImage.FromBitmap(overlayBitmap);
 
                                         canvas.DrawImage(image, SKRect.Create(overlayX, overlayY, image.Width, image.Height), sampling, overlayPaint);

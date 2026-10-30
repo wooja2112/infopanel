@@ -167,16 +167,38 @@ namespace InfoPanel.Services
                     {
                         Thread.CurrentThread.Name ??= $"TuringPanel-Render-{_device.DeviceId}";
                         var stopwatch1 = new Stopwatch();
+                        string? lastRenderError = null;
 
                         while (!renderToken.IsCancellationRequested)
                         {
                             stopwatch1.Restart();
-                            var frame = GenerateLcdBuffer();
 
-                            if (frame != null)
+                            // A failed frame must not end the render loop: the send loop would keep
+                            // waiting on _frameAvailable and the panel would freeze on its last frame.
+                            try
                             {
-                                var oldFrame = Interlocked.Exchange(ref _latestFrame, frame);
-                                _frameAvailable.Set();
+                                var frame = GenerateLcdBuffer();
+
+                                if (frame != null)
+                                {
+                                    var oldFrame = Interlocked.Exchange(ref _latestFrame, frame);
+                                    _frameAvailable.Set();
+                                }
+
+                                if (lastRenderError != null)
+                                {
+                                    lastRenderError = null;
+                                    _device.UpdateRuntimeProperties(errorMessage: string.Empty);
+                                }
+                            }
+                            catch (Exception e) when (e is not OperationCanceledException)
+                            {
+                                if (e.Message != lastRenderError)
+                                {
+                                    Logger.Error(e, "TuringPanelDevice {Device}: Render error", _device);
+                                    _device.UpdateRuntimeProperties(errorMessage: e.Message);
+                                }
+                                lastRenderError = e.Message;
                             }
 
                             var targetFrameTime = 1000 / Math.Max(1, _device.TargetFrameRate);

@@ -21,6 +21,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "InfoPanel.Plugins.Graphics"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InfoPanel.Views.Skia", "InfoPanel.Views.Skia\InfoPanel.Views.Skia.csproj", "{F0B6B536-4B2D-4E98-9D6E-950F9AD7F0A4}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "InfoPanel.Tests", "InfoPanel.Tests\InfoPanel.Tests.csproj", "{41A45DD8-531B-4DD7-9B41-AA25F210AFE3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -63,6 +65,10 @@ Global
 		{F0B6B536-4B2D-4E98-9D6E-950F9AD7F0A4}.Debug|x64.Build.0 = Debug|x64
 		{F0B6B536-4B2D-4E98-9D6E-950F9AD7F0A4}.Release|x64.ActiveCfg = Release|x64
 		{F0B6B536-4B2D-4E98-9D6E-950F9AD7F0A4}.Release|x64.Build.0 = Release|x64
+		{41A45DD8-531B-4DD7-9B41-AA25F210AFE3}.Debug|x64.ActiveCfg = Debug|x64
+		{41A45DD8-531B-4DD7-9B41-AA25F210AFE3}.Debug|x64.Build.0 = Debug|x64
+		{41A45DD8-531B-4DD7-9B41-AA25F210AFE3}.Release|x64.ActiveCfg = Release|x64
+		{41A45DD8-531B-4DD7-9B41-AA25F210AFE3}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

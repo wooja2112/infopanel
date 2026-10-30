@@ -178,7 +178,29 @@ using System.Timers;
             aTimer.Enabled = true;
         }
 
+        // System.Timers.Timer raises Elapsed on the thread pool and does not wait for the previous
+        // callback, so a slow poll (e.g. remote connections) could overlap the next one and race on
+        // SENSORHASH updates and IndexOrder. Skip the tick instead.
+        private static int _pollInProgress = 0;
+
         private static void PollSensorData(object source, ElapsedEventArgs e)
+        {
+            if (Interlocked.CompareExchange(ref _pollInProgress, 1, 0) != 0)
+            {
+                return;
+            }
+
+            try
+            {
+                PollSensorDataCore();
+            }
+            finally
+            {
+                Volatile.Write(ref _pollInProgress, 0);
+            }
+        }
+
+        private static void PollSensorDataCore()
         {
             if (HWINFO_RUNNING)
             {

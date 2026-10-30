@@ -34,7 +34,22 @@ namespace InfoPanel.Drawing
         private const double AutoRangeMinSpan = 1e-6;
         private static readonly TimeSpan AutoRangeTtl = TimeSpan.FromSeconds(30);
 
-        private static (double min, double max) ResolveAutoRange(
+        /// <summary>
+        /// Maps a sample into [0, 1] relative to the range, clamping values outside it.
+        /// Returns 0 for an empty/inverted range or a NaN sample.
+        /// </summary>
+        internal static double NormalizeSample(double value, double min, double max)
+        {
+            var span = max - min;
+            if (!(span > 0) || double.IsNaN(value))
+            {
+                return 0;
+            }
+
+            return Math.Clamp(value - min, 0, span) / span;
+        }
+
+        internal static (double min, double max) ResolveAutoRange(
             Guid id, double[] samples, double userMin, double userMax, bool autoValue)
         {
             if (!autoValue || samples.Length == 0)
@@ -274,20 +289,7 @@ namespace InfoPanel.Drawing
 
                                         for (int i = 0; i < size; i++)
                                         {
-                                            var value = Math.Max(values[i] - minValue, 0);
-                                            value = Math.Min(value, maxValue);
-
-                                            var scale = maxValue - minValue;
-                                            if (scale <= 0)
-                                            {
-                                                value = 0;
-                                            }
-                                            else
-                                            {
-                                                value = value / (maxValue - minValue);
-                                            }
-
-                                            value = value * (frameRect.Height - graphDisplayItem.Thickness);
+                                            var value = NormalizeSample(values[i], minValue, maxValue) * (frameRect.Height - graphDisplayItem.Thickness);
                                             value = Math.Round(value, 0, MidpointRounding.AwayFromZero);
 
                                             lastX = (int)frameRect.Left + (int)frameRect.Width - (i * graphDisplayItem.Step);
@@ -343,8 +345,7 @@ namespace InfoPanel.Drawing
                                         for (int i = 0; i < size; i++)
                                         {
                                             // Normalize and scale the value
-                                            var scale = maxValue - minValue;
-                                            var value = scale <= 0 ? 0 : Math.Clamp(values[i] - minValue, 0, maxValue) / scale * maxHeight;
+                                            var value = NormalizeSample(values[i], minValue, maxValue) * maxHeight;
                                             var normalizedHeight = (int)Math.Round(value, 0, MidpointRounding.AwayFromZero);
 
                                             // Update refRect properties for the current rectangle

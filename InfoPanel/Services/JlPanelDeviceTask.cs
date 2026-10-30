@@ -20,6 +20,7 @@ namespace InfoPanel.Services
         private int _panelWidth;
         private int _panelHeight;
         private int _lastBrightness;
+        private int? _adaptiveJpegQuality; // last quality that fit under MaxJpegBytes; null = start from configured
 
         public JlPanelDeviceTask(JlPanelDevice device)
         {
@@ -237,19 +238,24 @@ namespace InfoPanel.Services
                         encodeBitmap = dimmed;
                     }
 
-                    int quality = _device.JpegQuality;
+                    int configuredQuality = _device.JpegQuality;
+                    int quality = AdaptiveJpegQuality.GetStartQuality(_adaptiveJpegQuality, configuredQuality);
+                    encodeBitmap.SetImmutable(); // avoid a full pixel copy in FromBitmap
                     using var image = SKImage.FromBitmap(encodeBitmap);
 
                     // Drop quality until the JPEG fits in the firmware's max payload.
-                    for (int attempt = 0; attempt < 5; attempt++)
+                    while (true)
                     {
                         using var data = image.Encode(SKEncodedImageFormat.Jpeg, quality);
                         if (data.Size <= maxBytes || quality <= 30)
+                        {
+                            // Start the next frame from the quality that fit instead of re-running the
+                            // whole ladder every frame; step back up when there is clear headroom.
+                            _adaptiveJpegQuality = AdaptiveJpegQuality.GetNextQuality(quality, data.Size, maxBytes, configuredQuality);
                             return data.ToArray();
+                        }
                         quality = Math.Max(30, quality - 15);
                     }
-                    using var fallback = image.Encode(SKEncodedImageFormat.Jpeg, 30);
-                    return fallback.ToArray();
                 }
                 finally
                 {

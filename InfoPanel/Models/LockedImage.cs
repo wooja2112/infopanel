@@ -116,9 +116,25 @@ namespace InfoPanel.Models
 
         private readonly ProxyPluginImage? _pluginImage;
 
+        // Shared across all image downloads (including refresh intervals) to reuse connections.
+        private static readonly HttpClient SharedHttpClient = CreateHttpClient();
+
+        private static HttpClient CreateHttpClient()
+        {
+            var client = new HttpClient(new SocketsHttpHandler
+            {
+                PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+            })
+            {
+                Timeout = TimeSpan.FromSeconds(30)
+            };
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3");
+            return client;
+        }
+
         private readonly object Lock = new();
         private const int AccessLockTimeoutMs = 50;
-        private bool IsDisposed = false;
+        private volatile bool IsDisposed = false;
 
         private readonly Stopwatch Stopwatch = new();
 
@@ -229,13 +245,10 @@ namespace InfoPanel.Models
                 }
                 else if (ImagePath.IsUrl())
                 {
-                    using HttpClient client = new();
-                    client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3");
-
                     try
                     {
                         using var request = new HttpRequestMessage(HttpMethod.Get, ImagePath);
-                        using var response = client.Send(request);
+                        using var response = SharedHttpClient.Send(request);
                         response.EnsureSuccessStatusCode();
                         _stream = new MemoryStream();
                         response.Content.ReadAsStream().CopyTo(_stream);
@@ -400,13 +413,14 @@ namespace InfoPanel.Models
 
         private static bool IsSvgContent(Stream stream)
         {
-            if (stream.Length < 512)
+            if (stream.Length == 0)
             {
                 return false;
             }
 
-            var buffer = new byte[512];
-            stream.Read(buffer, 0, buffer.Length);
+            // Small SVG icons are well under 512 bytes; inspect whatever is there.
+            var buffer = new byte[(int)Math.Min(512, stream.Length)];
+            stream.ReadExactly(buffer);
             stream.Position = 0;
 
             // Check for SVG markers in the first bytes
@@ -532,12 +546,9 @@ namespace InfoPanel.Models
 
         public void AccessSVG(Action<SKPicture> access)
         {
-            if (IsDisposed)
-            {
-                throw new ObjectDisposedException("LockedImage");
-            }
-
-            if (!Loaded)
+            // Renderers can still hold a reference after the cache evicts and disposes this
+            // image (e.g. URL refresh); skip the frame rather than throw.
+            if (IsDisposed || !Loaded)
             {
                 return;
             }
@@ -549,6 +560,11 @@ namespace InfoPanel.Models
 
             try
             {
+                if (IsDisposed)
+                {
+                    return;
+                }
+
                 if (SKSvg?.Picture is SKPicture picture)
                 {
                     access(picture);
@@ -638,9 +654,9 @@ namespace InfoPanel.Models
 
         public void AccessSK(int targetWidth, int targetHeight, Action<SKImage> access, bool cache = true, string cacheHint = "default", GRContext? grContext = null)
         {
-            ObjectDisposedException.ThrowIf(IsDisposed, this);
-
-            if (!Loaded)
+            // Renderers can still hold a reference after the cache evicts and disposes this
+            // image (e.g. URL refresh); skip the frame rather than throw.
+            if (IsDisposed || !Loaded)
             {
                 return;
             }
@@ -655,6 +671,11 @@ namespace InfoPanel.Models
 
             try
             {
+                if (IsDisposed)
+                {
+                    return;
+                }
+
                 if (Type == ImageType.PLUGIN)
                 {
                     if (_pluginImage != null)
@@ -727,6 +748,9 @@ namespace InfoPanel.Models
                     using var bitmap = GetSKBitmapFromSK(frame);
                     //using var resizedBitmap = bitmap?.Resize(new SKImageInfo(targetWidth, targetHeight), SKSamplingOptions.Default);
                     using var resizedBitmap = bitmap?.Resize(new SKImageInfo(targetWidth, targetHeight), new SKSamplingOptions(SKCubicResampler.Mitchell));
+
+                    // Lets FromBitmap share the (Skia-allocated, ref-counted) pixels instead of copying them.
+                    resizedBitmap?.SetImmutable();
 
                     if (grContext != null && cache && resizedBitmap != null)
                     {
