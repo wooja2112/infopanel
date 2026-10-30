@@ -22,6 +22,13 @@ dotnet run --project InfoPanel/InfoPanel.csproj
 
 # Run plugin simulator for testing plugins
 dotnet run --project InfoPanel.Plugins.Simulator/InfoPanel.Plugins.Simulator.csproj
+
+# Run unit tests (xUnit)
+dotnet test InfoPanel.Tests/InfoPanel.Tests.csproj
+
+# Run a single test class or test
+dotnet test InfoPanel.Tests/InfoPanel.Tests.csproj --filter "FullyQualifiedName~SensorDisplayItemTests"
+dotnet test InfoPanel.Tests/InfoPanel.Tests.csproj --filter "FullyQualifiedName=InfoPanel.Tests.Drawing.GraphDrawTests.NormalizeSample_ClampsAboveMax_WhenMinIsNonZero"
 ```
 
 > **Note:** InfoPanel.Extras is built automatically via custom MSBuild targets in `InfoPanel.csproj` (`BuildExtras` / `CopyExtrasToBuildOutput`). No separate build step is needed.
@@ -42,8 +49,12 @@ InfoPanel is a WPF desktop application built on .NET 8.0 that displays hardware 
 | **InfoPanel.Plugins.Loader** | Dynamic plugin loading with assembly isolation (`PluginLoadContext`, `PluginWrapper`) |
 | **InfoPanel.Plugins.Simulator** | Test harness for plugin development |
 | **InfoPanel.Extras** | Built-in plugins (system info, network, drives, weather) |
+| **InfoPanel.Views.Skia** | WPF hosts for SkiaSharp rendering (`SKElement`, `SKGLElement` via OpenTK GLWpfControl) |
+| **InfoPanel.Tests** | xUnit tests for the main app (rendering helpers, sensor formatting, panel protocols, model databases). Has `InternalsVisibleTo` access. |
 
-> **Local DLL references:** LibreHardwareMonitor DLLs are referenced from `../LibreHardwareMonitor/` relative to the repo root. FlyleafLib.dll is referenced from `../libs/` (custom build with headless renderer fix). Ensure that sibling repos/directories are present when building.
+> `Directory.Build.props` forces `Platforms=x64` and `RuntimeIdentifier=win-x64` for every project.
+
+> **Vendored DLLs:** LibreHardwareMonitorLib, FlyleafLib (custom build with headless renderer fix) and the Turing/Trofeo LCD drivers are committed in `InfoPanel/Lib/` and referenced via `HintPath`; no sibling repos are needed.
 
 ### Application Startup
 
@@ -54,10 +65,10 @@ Entry point is `Program.cs` (`[STAThread] Main`) → `App.xaml.cs` → `OnStartu
 3. Flyleaf media engine initialization
 4. `ConfigModel.Instance.Initialize()` — loads settings and profiles from disk
 5. Default profile creation if first run
-6. `HWHash.Launch()` — starts HWiNFO shared-memory reader on its own thread
+6. `HWHash.Launch()` — starts the HWiNFO shared-memory poll timer
 7. `LibreMonitor.Instance.StartAsync()` — if enabled in settings
 8. `PluginMonitor.Instance.StartAsync()`
-9. `StartPanels()` — starts BeadaPanel, TuringPanel, and WebServer tasks based on settings
+9. `StartPanels()` — starts each USB panel task (Beada, Turing, LianLi, Thermalright, Thermaltake, JL, Jonsbo, Vmax) whose `*PanelMultiDeviceMode` setting is enabled, plus the WebServer task
 
 > **Note:** `Startup.cs` exists in the project but is entirely commented out — it is not part of the startup flow.
 
@@ -72,8 +83,7 @@ These singletons use the `Lazy<T>` / `Instance` pattern and are **not** in the D
 | `DisplayWindowManager.Instance` | `DisplayWindowManager.cs` | Manages overlay windows on a dedicated STA thread. |
 | `LibreMonitor.Instance` | `Monitors/LibreMonitor.cs` | LibreHardwareMonitor sensor polling. |
 | `PluginMonitor.Instance` | `Monitors/PluginMonitor.cs` | Plugin lifecycle management. |
-| `BeadaPanelTask.Instance` | `Services/BeadaPanelTask.cs` | BeadaPanel USB device communication. |
-| `TuringPanelTask.Instance` | `Services/TuringPanelTask.cs` | TuringPanel USB/serial communication. |
+| `<Vendor>PanelTask.Instance` | `Services/<Vendor>PanelTask.cs` | One per USB panel family (Beada, Turing, LianLi, Thermalright, Thermaltake, Jl, Jonsbo, Vmax). |
 | `WebServerTask.Instance` | `Services/WebServerTask.cs` | Built-in HTTP API and web interface. |
 | `ProfilePreviewCoordinator.Instance` | `Services/ProfilePreviewCoordinator.cs` | Batched profile preview rendering. |
 | `UndoManager.Instance` | `Services/UndoManager.cs` | Per-profile undo/redo via XML snapshots. |
@@ -93,16 +103,18 @@ Registered in `App.xaml.cs` via `Host.CreateDefaultBuilder().ConfigureServices(.
 | **Main UI thread** | WPF dispatcher, MainWindow, all settings pages |
 | **DisplayWindowThread** | Dedicated STA thread created by `DisplayWindowManager` with its own `Dispatcher`. Hosts all `DisplayWindow` overlays. |
 | **BackgroundTask workers** | Each service (`BeadaPanelTask`, `TuringPanelTask`, `WebServerTask`, `LibreMonitor`, `PluginMonitor`) runs via `Task.Run` from `BackgroundTask` base class with `CancellationToken` and `SemaphoreSlim(1,1)` for thread safety. |
-| **HWHash thread** | `HWHash.Launch()` starts a dedicated thread that reads HWiNFO shared memory at a configurable interval. |
+| **HWHash timer** | `HWHash.Launch()` starts a `System.Timers.Timer` (500 ms, set in `App.xaml.cs`) whose callbacks read HWiNFO shared memory on the thread pool; overlapping ticks are skipped. |
 
 > `BackgroundTask` (`Services/BackgroundTask.cs`) is the abstract base class for all long-running services. It provides `StartAsync`, `StopAsync`, `IsRunning`, and a protected `DoWorkAsync(CancellationToken)` method.
 
 ### Display System
 
-The drawing system (`InfoPanel/Drawing/`) has multiple implementations:
-- `SkiaGraphics` — Primary renderer using SkiaSharp
-- `AcceleratedGraphics` — Hardware-accelerated DirectX rendering
-- `PanelDraw` — Orchestrates rendering of display items
+All rendering goes through SkiaSharp (`InfoPanel/Drawing/`):
+- `SkiaGraphics` — the renderer (the only live implementation)
+- `PanelDraw` — orchestrates rendering of display items
+- `Services/PanelDrawTask.RenderSK(...)` — renders a profile to a bitmap for USB panels and the web server
+
+> `AcceleratedGraphics.cs`, `CompatGraphics.cs` and `MyGraphics.cs` are entirely commented out — legacy, not used.
 
 ### DisplayItem Hierarchy
 
@@ -128,10 +140,14 @@ Base class: `DisplayItem` (abstract, in `Models/DisplayItem.cs`) — inherits `O
 
 ### USB Panel Support
 
-USB panel communication is in `InfoPanel/TuringPanel/` and `InfoPanel/BeadaPanel/`:
-- Uses WinUSB API for BeadaPanel devices
-- Serial/USB communication for TuringPanel devices
-- Model-specific configurations in database classes
+Each panel family has a folder `InfoPanel/<Vendor>Panel/` (Beada, Turing, LianLi, Thermalright, Thermaltake, Jl, Jonsbo, Vmax) and follows the same pattern:
+
+- `<Vendor>PanelModelDatabase` / `<Vendor>PanelModelInfo` — per-model specs (VID/PID, resolution, protocol variant)
+- Device classes for transport (WinUSB, HID, SCSI, serial/CDC depending on vendor)
+- `Services/<Vendor>PanelTask` — singleton `BackgroundTask` that discovers devices and spawns one `Services/<Vendor>PanelDeviceTask` per connected device (Turing is the exception: it splits into `TuringPanelUsbDeviceTask` and `TuringPanelSerialTask`)
+- Device tasks render frames via `PanelDrawTask.RenderSK(profile, ...)` and push them over the device protocol
+
+When adding a new panel family, mirror an existing one and wire it into `StartPanels()` and the shutdown sequence in `App.xaml.cs`. The Jungle Leopard / Hongtai wire protocol (shared by many white-label SKUs, including Jonsbo) is documented in `JL-PROTOCOL.md`.
 
 ### Plugin Development
 
@@ -189,7 +205,8 @@ GitHub Actions workflow: `.github/workflows/dotnet-desktop.yml`
 - **x64 only** — `<Platforms>x64</Platforms>` is set in all csproj files
 - Warning level 6 and nullable reference types are enabled
 - `AllowUnsafeBlocks` is enabled for performance-critical code
-- No unit test projects currently exist
+- Unit tests live in `InfoPanel.Tests` and run in CI before publish. They cover pure logic only (no hardware, WPF windows or app singletons); to test logic buried in a device task or drawing method, extract it into an `internal static` helper (see `Utils/AdaptiveJpegQuality.cs`, `GraphDraw.NormalizeSample`). Tests that depend on number formatting set the culture with `TestSupport/CultureScope`.
+- `ModelDatabaseTests` checks every panel model database for consistency (key matches model, VID/PID scanned and unambiguous). When adding a model that intentionally breaks a rule, add it to that test's documented exceptions.
 - Plugins are loaded from the `plugins` directory at runtime
 
 ## API Client
@@ -218,4 +235,7 @@ This fetches the latest spec from `https://api.infopanel.net/openapi.json` and r
 - `PLUGINS.md` — Plugin development guide (for plugin authors)
 - `PLUGIN-ARCHITECTURE.md` — Plugin system internals (for contributors)
 - `PANELS.md` — Hardware panel support and models
+- `JL-PROTOCOL.md` — Reverse-engineered Jungle Leopard / Hongtai display protocol
+- `PLUGIN-REGISTRY.md` — How community plugins are listed in `plugins.json` (consumed by the InfoPanel API for the in-app plugin browser)
+- `docs/USER_GUIDE.md` — End-user guide
 - `LoggingGuidelines.md` — Serilog usage standards and log levels
